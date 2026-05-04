@@ -61,12 +61,16 @@ import numpy as np
 from pynput import keyboard
 
 from catch_dialog import read_catch_dialog, sell_click_target
-from config import CAST_HOLD_S, GAME_WINDOW_RECT, POST_ACTION_PAUSE_S, PREVIEW_CIRCLE
-from mouse_input import MouseDriver, get_cursor_position, move_cursor, probe_accessibility
+from config import (
+    AUTOSTART_DELAY_S, AUTOSTART_FIRST_CAST, CAST_HOLD_S, GAME_WINDOW_RECT,
+    POST_ACTION_PAUSE_S, PREVIEW_CIRCLE,
+)
+from mouse_input import MouseDriver, get_cursor_position, probe_accessibility
 from play_segmentation import annotate
 from screen_capture import ScreenCapture
 from segment_float import FloatDetection, preview_visible, segment_float
 from state_machine import FishingFSM, Observation, State, reel_action
+from status_monitor import StatusMonitor
 from tension import read_tension
 
 
@@ -111,7 +115,8 @@ def countdown(seconds: int) -> None:
 
 def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
         scale: float, target_fps: float, countdown_s: int,
-        game_rect: tuple[int, int, int, int]) -> int:
+        game_rect: tuple[int, int, int, int],
+        show_monitor: bool = True) -> int:
     gx, gy, gw, gh = game_rect
 
     def to_screen(local_x: int, local_y: int) -> tuple[int, int]:
@@ -136,14 +141,22 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
     if countdown_s > 0:
         countdown(countdown_s)
 
-    fsm = FishingFSM()
+    fsm = FishingFSM(
+        autostart_first_cast=AUTOSTART_FIRST_CAST,
+        autostart_delay_s=AUTOSTART_DELAY_S,
+    )
     fsm.on_transition = lambda old, new, t: print(f"  [{t:6.2f}s] {old.value} -> {new.value}")
+    monitor = StatusMonitor() if show_monitor else None
     drv = MouseDriver(enabled=not dry)
     period = 1.0 / target_fps if target_fps > 0 else 0.0
     win = "ufs-bot"
     if show_window:
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     t_start = time.monotonic()
+    loops = 0
+    fps_window_t0 = t_start
+    fps_window_n = 0
+    fps = 0.0
 
     try:
         while not stop:
@@ -175,11 +188,13 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                     drv.click_at(*to_screen(lx, ly))
                     time.sleep(POST_ACTION_PAUSE_S)
                 elif state == State.AUTOCAST:
-                    # Park the cursor inside the game window before the cast
-                    # so the held LMB is interpreted as a charge in the game.
-                    cx, cy = to_screen(gw // 2, gh // 2)
-                    move_cursor(cx, cy)
-                    time.sleep(0.05)
+                    # DO NOT move the cursor before holding LMB. UFS is a
+                    # first-person game: in fishing mode the cursor is
+                    # captured and any synthetic warp registers as a huge
+                    # camera-rotation delta, swinging the rod skyward and
+                    # casting into the air. Just hold LMB at the current
+                    # captured position — the camera was already facing the
+                    # spot the player wants to fish.
                     drv.hold_for(CAST_HOLD_S)
                     time.sleep(POST_ACTION_PAUSE_S)
                 else:
@@ -203,6 +218,29 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                 if k == ord("q") or k == 27:
                     break
 
+            loops += 1
+            fps_window_n += 1
+            now = time.monotonic()
+            if now - fps_window_t0 >= 0.5:
+                fps = fps_window_n / (now - fps_window_t0)
+                fps_window_t0 = now
+                fps_window_n = 0
+            if monitor is not None:
+                action_str = "idle"
+                if state in (State.SUNK, State.REELING):
+                    action_str = "ease" if tension.is_danger else "reel"
+                monitor.update(
+                    state=state.value if not probe else "PROBE",
+                    action=action_str,
+                    lmb_down=drv.is_down(),
+                    tension_visible=tension.visible,
+                    tension_fill=tension.fill,
+                    tension_danger=tension.danger,
+                    catch_visible=catch.visible,
+                    fps=fps,
+                    loops=loops,
+                )
+
             if period > 0:
                 elapsed = time.monotonic() - loop_start
                 if elapsed < period:
@@ -212,6 +250,8 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
     finally:
         drv.shutdown()
         cap.close()
+        if monitor is not None:
+            monitor.shutdown()
         if show_window:
             cv2.destroyAllWindows()
     return 0
@@ -259,6 +299,8 @@ def main() -> int:
                     help="Seconds to wait before starting (gives time to focus the game).")
     ap.add_argument("--game-rect", type=parse_region, default=None,
                     help="Override config.GAME_WINDOW_RECT: x,y,w,h of the game's rendered area.")
+    ap.add_argument("--no-monitor", action="store_true",
+                    help="Disable the always-on-top floating status panel.")
     args = ap.parse_args()
     if args.probe_input:
         return cmd_probe_input()
@@ -269,7 +311,7 @@ def main() -> int:
     return run(cap, dry=args.dry, probe=args.probe, show_window=args.window,
                scale=args.scale, target_fps=args.fps,
                countdown_s=args.countdown if not args.dry else 0,
-               game_rect=rect)
+               game_rect=rect, show_monitor=not args.no_monitor)
 
 
 if __name__ == "__main__":

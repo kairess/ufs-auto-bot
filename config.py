@@ -47,3 +47,9 @@ CAST_HOLD_S = 1.5
 # After a sell click or auto-cast, wait this long before re-entering the loop
 # so the game can update its UI / animations.
 POST_ACTION_PAUSE_S = 0.8
+
+# If True, the bot will perform the FIRST cast itself after this many seconds
+# of sitting in IDLE with no preview UI visible. Set False to require a manual
+# first cast (safer if you might launch with the bot pointing at a menu).
+AUTOSTART_FIRST_CAST = True
+AUTOSTART_DELAY_S = 2.0

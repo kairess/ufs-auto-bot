@@ -70,6 +70,11 @@ REELING_TIMEOUT_S = 60.0
 # for this long to count as a false alarm.
 SUNK_CANCEL_S = 0.5
 
+# Read at construction time from config.py. The FSM doesn't import config
+# directly so this stays unit-testable; the bot wires the values in.
+AUTOSTART_DEFAULT = True
+AUTOSTART_DELAY_DEFAULT = 2.0
+
 
 @dataclass
 class Observation:
@@ -87,6 +92,8 @@ class FishingFSM:
     last_seen_float: float = 0.0       # last t at which float was found
     last_lost_float: float = 0.0       # last t at which float was missing
     last_seen_preview: float = 0.0     # last t at which preview was visible
+    autostart_first_cast: bool = AUTOSTART_DEFAULT
+    autostart_delay_s: float = AUTOSTART_DELAY_DEFAULT
     on_transition: Optional[Callable[[State, State, float], None]] = None
     history: list[tuple[float, State]] = field(default_factory=list)
 
@@ -122,10 +129,14 @@ class FishingFSM:
             return self.state
 
         if s == State.IDLE:
-            # If the user/bot started a cast we never observed, infer it from
-            # a sudden preview-visible appearance.
+            # If a cast already happened (manual or from a previous cycle),
+            # the preview UI shows up — slip into CASTING and let it settle.
             if obs.preview_visible:
                 self._go(State.CASTING, obs.t)
+            elif self.autostart_first_cast and elapsed >= self.autostart_delay_s:
+                # No preview after the autostart grace window: assume the rod
+                # is ready and the player wants the bot to do the first cast.
+                self._go(State.AUTOCAST, obs.t)
 
         elif s == State.AUTOCAST:
             # Driver actually performed the cast. Wait until preview shows up
