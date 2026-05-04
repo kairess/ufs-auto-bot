@@ -23,7 +23,7 @@ Usage:
     python bot.py --game-rect 0,0,1920,1080
 
 Stop the running bot at any time:
-    - press Esc anywhere on screen (global hotkey, no focus needed)
+    - press Delete anywhere on screen (global hotkey, no focus needed)
     - or Ctrl+C in the terminal
 
 Setup
@@ -127,7 +127,7 @@ def parse_region(s: str) -> tuple[int, int, int, int]:
 
 
 class StopSignal:
-    """Thread-safe stop flag flipped by the global Esc hotkey."""
+    """Thread-safe stop flag flipped by the global Delete hotkey."""
 
     def __init__(self) -> None:
         self._stop = False
@@ -141,8 +141,8 @@ class StopSignal:
 
 def install_stop_hotkey(stop: StopSignal) -> keyboard.Listener:
     def on_press(key):
-        if key == keyboard.Key.esc:
-            print("\n[hotkey] Esc -> stopping")
+        if key == keyboard.Key.delete:
+            print("\n[hotkey] Delete -> stopping")
             stop.set()
             return False  # stop listener
     listener = keyboard.Listener(on_press=on_press)
@@ -153,7 +153,7 @@ def install_stop_hotkey(stop: StopSignal) -> keyboard.Listener:
 
 def countdown(seconds: int) -> None:
     for i in range(seconds, 0, -1):
-        print(f"  starting in {i}... (focus the game window now; press Esc to abort)", end="\r", flush=True)
+        print(f"  starting in {i}... (focus the game window now; press Delete to abort)", end="\r", flush=True)
         time.sleep(1)
     print(" " * 80, end="\r", flush=True)
 
