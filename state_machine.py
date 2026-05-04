@@ -77,6 +77,12 @@ SUNK_CANCEL_S = 0.5
 AUTOSTART_DEFAULT = True
 AUTOSTART_DELAY_DEFAULT = 2.0
 
+# How long to wait AFTER the catch dialog has closed before firing the next
+# cast. The game plays a "fish stowed / rod re-ready" animation in this gap;
+# pressing LMB during it is eaten by the animation rather than starting a
+# cast charge. 2.5s clears the animation comfortably.
+POST_CATCH_DELAY_S = 2.5
+
 
 @dataclass
 class Observation:
@@ -94,6 +100,7 @@ class FishingFSM:
     last_seen_float: float = 0.0       # last t at which float was found
     last_lost_float: float = 0.0       # last t at which float was missing
     last_seen_preview: float = 0.0     # last t at which preview was visible
+    last_seen_catch: float = 0.0       # last t at which catch dialog was visible
     autostart_first_cast: bool = AUTOSTART_DEFAULT
     autostart_delay_s: float = AUTOSTART_DELAY_DEFAULT
     on_transition: Optional[Callable[[State, State, float], None]] = None
@@ -119,6 +126,8 @@ class FishingFSM:
             self.last_seen_float = obs.t
         else:
             self.last_lost_float = obs.t
+        if obs.catch_dialog_visible:
+            self.last_seen_catch = obs.t
 
         s = self.state
         elapsed = obs.t - self.state_since
@@ -202,11 +211,16 @@ class FishingFSM:
                 self._go(State.IDLE, obs.t)
 
         elif s == State.CATCH_DIALOG:
-            # Driver clicks sell and the dialog goes away on its own; once
-            # the green button area is gone, kick off the next auto-cast.
-            if not obs.catch_dialog_visible and elapsed > 0.3:
+            # Driver clicks sell and the dialog disappears, but UFS plays a
+            # short "fish stowed / rod re-ready" animation afterward. Pressing
+            # LMB during that animation is silently consumed instead of
+            # starting a cast charge — so we wait POST_CATCH_DELAY_S after
+            # the dialog has been GONE before kicking off the next cast.
+            if not obs.catch_dialog_visible and \
+                    (obs.t - self.last_seen_catch) >= POST_CATCH_DELAY_S:
                 self._go(State.AUTOCAST, obs.t)
-            elif elapsed > 10.0:
+            elif elapsed > 15.0:
+                # Multiple clicks failed to clear the dialog, give up.
                 self._go(State.IDLE, obs.t)
 
         return self.state
