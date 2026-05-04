@@ -1,0 +1,9 @@
+# Cross-platform deps (work on both macOS and Windows).
+opencv-python==4.9.0.80
+numpy<2
+mss>=10
+pynput>=1.8        # used for the global Esc-to-stop hotkey listener
+
+# macOS-only: for the Quartz-based mouse backend. Already pulled in by pynput
+# on darwin, but pinned here for clarity. On Windows pip will simply skip these.
+pyobjc-framework-Quartz; sys_platform == "darwin"
