@@ -71,6 +71,7 @@ from screen_capture import ScreenCapture
 from segment_float import FloatDetection, preview_visible, segment_float
 from state_machine import FishingFSM, Observation, State, reel_action
 from status_monitor import StatusMonitor
+from status_server import StatusServer
 from tension import read_tension
 
 
@@ -116,7 +117,8 @@ def countdown(seconds: int) -> None:
 def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
         scale: float, target_fps: float, countdown_s: int,
         game_rect: tuple[int, int, int, int],
-        show_monitor: bool = True) -> int:
+        show_monitor: bool = True,
+        status_port: int = 0) -> int:
     gx, gy, gw, gh = game_rect
 
     def to_screen(local_x: int, local_y: int) -> tuple[int, int]:
@@ -147,6 +149,7 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
     )
     fsm.on_transition = lambda old, new, t: print(f"  [{t:6.2f}s] {old.value} -> {new.value}")
     monitor = StatusMonitor() if show_monitor else None
+    status_server = StatusServer(port=status_port) if status_port else None
     drv = MouseDriver(enabled=not dry)
     period = 1.0 / target_fps if target_fps > 0 else 0.0
     win = "ufs-bot"
@@ -225,21 +228,24 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                 fps = fps_window_n / (now - fps_window_t0)
                 fps_window_t0 = now
                 fps_window_n = 0
+            action_str = "idle"
+            if state in (State.SUNK, State.REELING):
+                action_str = "ease" if tension.is_danger else "reel"
+            update_payload = dict(
+                state=state.value if not probe else "PROBE",
+                action=action_str,
+                lmb_down=drv.is_down(),
+                tension_visible=tension.visible,
+                tension_fill=tension.fill,
+                tension_danger=tension.danger,
+                catch_visible=catch.visible,
+                fps=fps,
+                loops=loops,
+            )
             if monitor is not None:
-                action_str = "idle"
-                if state in (State.SUNK, State.REELING):
-                    action_str = "ease" if tension.is_danger else "reel"
-                monitor.update(
-                    state=state.value if not probe else "PROBE",
-                    action=action_str,
-                    lmb_down=drv.is_down(),
-                    tension_visible=tension.visible,
-                    tension_fill=tension.fill,
-                    tension_danger=tension.danger,
-                    catch_visible=catch.visible,
-                    fps=fps,
-                    loops=loops,
-                )
+                monitor.update(**update_payload)
+            if status_server is not None:
+                status_server.update(**update_payload)
 
             if period > 0:
                 elapsed = time.monotonic() - loop_start
@@ -252,6 +258,8 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
         cap.close()
         if monitor is not None:
             monitor.shutdown()
+        if status_server is not None:
+            status_server.shutdown()
         if show_window:
             cv2.destroyAllWindows()
     return 0
@@ -301,6 +309,10 @@ def main() -> int:
                     help="Override config.GAME_WINDOW_RECT: x,y,w,h of the game's rendered area.")
     ap.add_argument("--no-monitor", action="store_true",
                     help="Disable the always-on-top floating status panel.")
+    ap.add_argument("--status-port", type=int, default=0,
+                    help="If set, broadcast status JSON over TCP on this port "
+                         "(e.g. 5800). Use status_client.py from another machine "
+                         "(e.g. your Mac viewing via Steam Remote Play) to render.")
     args = ap.parse_args()
     if args.probe_input:
         return cmd_probe_input()
@@ -311,7 +323,8 @@ def main() -> int:
     return run(cap, dry=args.dry, probe=args.probe, show_window=args.window,
                scale=args.scale, target_fps=args.fps,
                countdown_s=args.countdown if not args.dry else 0,
-               game_rect=rect, show_monitor=not args.no_monitor)
+               game_rect=rect, show_monitor=not args.no_monitor,
+               status_port=args.status_port)
 
 
 if __name__ == "__main__":

@@ -53,7 +53,8 @@ class _Snapshot:
 
 class StatusMonitor:
     def __init__(self, width: int = 240, height: int = 200,
-                 position: str = "left-center", refresh_ms: int = 100) -> None:
+                 position: str = "left-center", refresh_ms: int = 100,
+                 title: str = "ufs-bot") -> None:
         self._snap = _Snapshot()
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -61,6 +62,7 @@ class StatusMonitor:
         self._height = height
         self._position = position
         self._refresh_ms = refresh_ms
+        self._title = title
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True,
                                         name="status-monitor")
@@ -118,7 +120,7 @@ class StatusMonitor:
 
     def _run(self) -> None:
         root = tk.Tk()
-        root.title("ufs-bot")
+        root.title(self._title)
         root.configure(bg="#0a0a0a")
         root.overrideredirect(True)        # borderless
         root.attributes("-topmost", True)
