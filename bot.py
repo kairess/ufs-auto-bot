@@ -66,7 +66,7 @@ from config import (
     AUTOSTART_DELAY_S, AUTOSTART_FIRST_CAST, CAST_HOLD_S, GAME_WINDOW_RECT,
     POST_ACTION_PAUSE_S, PREVIEW_CIRCLE,
 )
-from mouse_input import MouseDriver, get_cursor_position, probe_accessibility
+from mouse_input import MouseDriver, get_cursor_position, probe_accessibility, warp_cursor
 from play_segmentation import annotate
 from screen_capture import ScreenCapture
 from segment_float import FloatDetection, preview_visible, segment_float
@@ -231,6 +231,16 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                     drv.release()
                     lx, ly = sell_click_target()
                     drv.click_at(*to_screen(lx, ly))
+                    # Silently re-park the cursor at the game-window center.
+                    # SetCursorPos (no input event) — the game's FPS camera
+                    # reader won't see this as a delta. We do this so the
+                    # cursor is centered when the game leaves UI mode and
+                    # captures the cursor for first-person view; otherwise it
+                    # caps with the cursor still on the sell button, the
+                    # camera locks askew, and AUTOCAST flies the lure into
+                    # nowhere (the bug that was making CASTING never reach
+                    # WAITING — preview UI never got a float to track).
+                    warp_cursor(*to_screen(gw // 2, gh // 2))
                     time.sleep(POST_ACTION_PAUSE_S)
                 elif state == State.AUTOCAST:
                     # DO NOT move the cursor before holding LMB. UFS is a

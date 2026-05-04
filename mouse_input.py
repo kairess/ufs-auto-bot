@@ -56,6 +56,17 @@ def move_cursor(x: int, y: int) -> None:
     _backend.move(x, y)
 
 
+def warp_cursor(x: int, y: int) -> None:
+    """Reposition the cursor WITHOUT firing a mouse-input event.
+
+    Use this for "park the cursor at a safe spot" purposes. Unlike
+    move_cursor (which uses SendInput / CGEvent and registers as input),
+    this calls SetCursorPos / CGWarp directly so a game's FPS-look reader
+    won't pick it up as a camera-rotation delta.
+    """
+    _backend.warp(x, y)
+
+
 MAX_HOLD_S = 10.0  # auto-release safety: never hold LMB longer than this without an explicit re-press
 
 

@@ -65,6 +65,14 @@ class _POINT(ctypes.Structure):
 _user32.GetCursorPos.argtypes = (ctypes.POINTER(_POINT),)
 _user32.GetCursorPos.restype = wintypes.BOOL
 
+# SetCursorPos updates cursor position WITHOUT generating an input event.
+# In FPS games that read mouse-look via raw delta (Unity Input.GetAxis,
+# WM_INPUT, etc.), this lets us reposition the cursor without registering a
+# fake camera rotation. SendInput MOUSEEVENTF_MOVE in contrast does generate
+# the delta and would swing the camera.
+_user32.SetCursorPos.argtypes = (ctypes.c_int, ctypes.c_int)
+_user32.SetCursorPos.restype = wintypes.BOOL
+
 
 def _virtual_desktop() -> tuple[int, int, int, int]:
     return (
@@ -112,6 +120,11 @@ def get_position() -> tuple[float, float]:
 
 def move(x: float, y: float) -> None:
     _send(MOUSEEVENTF_MOVE, x, y)
+
+
+def warp(x: float, y: float) -> None:
+    """Reposition cursor without generating any mouse input event."""
+    _user32.SetCursorPos(int(x), int(y))
 
 
 def left_down(x: float | None = None, y: float | None = None) -> None:

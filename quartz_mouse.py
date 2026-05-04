@@ -51,6 +51,18 @@ def move(x: float, y: float) -> None:
     _post(_make(Quartz.kCGEventMouseMoved, x, y))
 
 
+def warp(x: float, y: float) -> None:
+    """Reposition cursor without generating any mouse input event.
+
+    Disassociating + warping + reassociating is the macOS equivalent of
+    Win32 SetCursorPos for our purposes — the FPS camera handler in the
+    game won't see a delta from this.
+    """
+    Quartz.CGAssociateMouseAndMouseCursorPosition(False)
+    Quartz.CGWarpMouseCursorPosition((float(x), float(y)))
+    Quartz.CGAssociateMouseAndMouseCursorPosition(True)
+
+
 def left_down(x: float | None = None, y: float | None = None) -> None:
     if x is None or y is None:
         x, y = get_position()
