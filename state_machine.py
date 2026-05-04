@@ -80,8 +80,8 @@ AUTOSTART_DELAY_DEFAULT = 2.0
 # How long to wait AFTER the catch dialog has closed before firing the next
 # cast. The game plays a "fish stowed / rod re-ready" animation in this gap;
 # pressing LMB during it is eaten by the animation rather than starting a
-# cast charge. 2.5s clears the animation comfortably.
-POST_CATCH_DELAY_S = 2.5
+# cast charge. 4s gives plenty of margin even on slower scenes.
+POST_CATCH_DELAY_S = 4.0
 
 
 @dataclass
@@ -150,12 +150,15 @@ class FishingFSM:
                 self._go(State.AUTOCAST, obs.t)
 
         elif s == State.AUTOCAST:
-            # Driver actually performed the cast. Wait until preview shows up
-            # again, then move into CASTING (which then settles into WAITING).
-            if obs.preview_visible:
-                self._go(State.CASTING, obs.t)
-            elif elapsed > 6.0:
-                # Cast input did not produce a preview — give up and idle.
+            # AUTOCAST is bot-driven: the driver calls notify_cast_input_completed
+            # AFTER it has finished holding LMB, which transitions us to CASTING.
+            # Do NOT shortcut to CASTING just because preview_visible is true here:
+            # a residual preview UI from the previous cycle (or a transient
+            # detection false-positive after a catch dialog) would otherwise let
+            # the FSM skip past AUTOCAST before the driver gets a chance to
+            # actually fire the cast input.
+            if elapsed > 10.0:
+                # Driver never reported a cast (bug or hold_for crash). Bail.
                 self._go(State.IDLE, obs.t)
 
         elif s == State.CASTING:
