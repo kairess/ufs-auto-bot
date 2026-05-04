@@ -57,9 +57,10 @@ CAST_SETTLE_S = 2.0
 # slightly under that so we never miss one but still reject single-frame noise.
 SUNK_DEBOUNCE_S = 0.08
 
-# How long the preview must remain hidden after SUNK before we commit to the
-# REELING state (avoids momentary UI flicker dropping us out of SUNK too fast).
-PREVIEW_GONE_DEBOUNCE_S = 0.15
+# How long the preview must remain hidden before we treat it as a real "UI
+# went away" event. Set higher than the SUNK debounce so a brief one-frame
+# detection drop doesn't kick us out of WAITING into IDLE.
+PREVIEW_GONE_DEBOUNCE_S = 1.0
 
 # Hard cap on REELING duration (failsafe so we never hold the mouse forever
 # if the catch-UI detector misses).
@@ -218,8 +219,18 @@ class FishingFSM:
         """Driver finished the LMB hold-and-release. Move into CASTING so the
         next loop iterations don't re-fire the cast input. CASTING then waits
         for the preview UI + float to appear and settle.
+
+        Also resets the float-presence timers: during the blocking hold_for()
+        no observations were taken, so last_lost_float / last_seen_float are
+        stale (often still at the 0.0 init value). Without resetting, the very
+        first frame in CASTING that happens to find the float would compute
+        steady_visible_s = t (huge) and trip CASTING -> WAITING immediately,
+        defeating the settle gate and leaving us one bad frame from IDLE.
         """
         if self.state == State.AUTOCAST:
+            self.last_lost_float = t
+            self.last_seen_float = t
+            self.last_seen_preview = t
             self._go(State.CASTING, t)
 
 
