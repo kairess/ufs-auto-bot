@@ -64,7 +64,7 @@ from pynput import keyboard
 from catch_dialog import read_catch_dialog, sell_click_target
 from config import (
     AUTOSTART_DELAY_S, AUTOSTART_FIRST_CAST, CAST_HOLD_S, GAME_WINDOW_RECT,
-    POST_ACTION_PAUSE_S, PREVIEW_CIRCLE,
+    POST_ACTION_PAUSE_S, POST_CATCH_DELAY_S, PREVIEW_CIRCLE,
 )
 from mouse_input import MouseDriver, get_cursor_position, probe_accessibility
 from play_segmentation import annotate
@@ -189,6 +189,7 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
     fsm = FishingFSM(
         autostart_first_cast=AUTOSTART_FIRST_CAST,
         autostart_delay_s=AUTOSTART_DELAY_S,
+        post_catch_delay_s=POST_CATCH_DELAY_S,
     )
     fsm.on_transition = lambda old, new, t: print(f"  [{t:6.2f}s] {old.value} -> {new.value}")
     monitor = StatusMonitor() if show_monitor else None
@@ -239,7 +240,10 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                         # often miss because the button's hitbox isn't ready.
                         time.sleep(2.0)
                         lx, ly = sell_click_target()
-                        drv.click_at(*to_screen(lx, ly))
+                        sx, sy = to_screen(lx, ly)
+                        print(f"  [bot] CATCH_DIALOG: clicking sell at "
+                              f"screen ({sx},{sy})  enabled={drv.enabled}")
+                        drv.click_at(sx, sy)
                         time.sleep(POST_ACTION_PAUSE_S)
                         sell_done_for_this_catch = True
                 elif state == State.AUTOCAST:
@@ -250,11 +254,18 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                     # casting into the air. Just hold LMB at the current
                     # captured position — the camera was already facing the
                     # spot the player wants to fish.
-                    drv.hold_for(CAST_HOLD_S)
+                    cur = get_cursor_position()
+                    print(f"  [bot] AUTOCAST: hold LMB {CAST_HOLD_S}s at "
+                          f"screen ({int(cur[0])},{int(cur[1])})  enabled={drv.enabled}")
+                    try:
+                        drv.hold_for(CAST_HOLD_S)
+                    except Exception as e:
+                        print(f"  [bot] AUTOCAST hold_for raised: {e!r}")
                     time.sleep(POST_ACTION_PAUSE_S)
-                    # Critical: leave AUTOCAST immediately so subsequent loop
-                    # iterations don't re-press LMB while the cast is still in
-                    # flight (which would yank the rod / partially reel in).
+                    print(f"  [bot] AUTOCAST: hold finished -> notify FSM")
+                    # Critical: always notify FSM even if hold_for failed,
+                    # so we don't get stuck in AUTOCAST. CASTING failsafe
+                    # will then catch a no-op cast.
                     fsm.notify_cast_input_completed(time.monotonic() - t_start)
                 else:
                     action = reel_action(state, tension.is_danger)

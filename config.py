@@ -53,3 +53,11 @@ POST_ACTION_PAUSE_S = 0.8
 # first cast (safer if you might launch with the bot pointing at a menu).
 AUTOSTART_FIRST_CAST = True
 AUTOSTART_DELAY_S = 2.0
+
+# How long to wait AFTER the catch dialog has closed before firing the next
+# cast. UFS plays a "fish stowed / rod re-ready" animation in this window;
+# pressing LMB during it is silently consumed by the animation rather than
+# starting a cast charge — the FSM then transitions to CASTING but the rod
+# never actually moves and we cycle endlessly. Bump this if the next cast
+# is failing after a successful catch.
+POST_CATCH_DELAY_S = 8.0

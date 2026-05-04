@@ -76,12 +76,7 @@ SUNK_CANCEL_S = 0.5
 # directly so this stays unit-testable; the bot wires the values in.
 AUTOSTART_DEFAULT = True
 AUTOSTART_DELAY_DEFAULT = 2.0
-
-# How long to wait AFTER the catch dialog has closed before firing the next
-# cast. The game plays a "fish stowed / rod re-ready" animation in this gap;
-# pressing LMB during it is eaten by the animation rather than starting a
-# cast charge. 4s gives plenty of margin even on slower scenes.
-POST_CATCH_DELAY_S = 4.0
+POST_CATCH_DELAY_DEFAULT = 8.0
 
 
 @dataclass
@@ -103,6 +98,7 @@ class FishingFSM:
     last_seen_catch: float = 0.0       # last t at which catch dialog was visible
     autostart_first_cast: bool = AUTOSTART_DEFAULT
     autostart_delay_s: float = AUTOSTART_DELAY_DEFAULT
+    post_catch_delay_s: float = POST_CATCH_DELAY_DEFAULT
     on_transition: Optional[Callable[[State, State, float], None]] = None
     history: list[tuple[float, State]] = field(default_factory=list)
 
@@ -220,7 +216,7 @@ class FishingFSM:
             # starting a cast charge — so we wait POST_CATCH_DELAY_S after
             # the dialog has been GONE before kicking off the next cast.
             if not obs.catch_dialog_visible and \
-                    (obs.t - self.last_seen_catch) >= POST_CATCH_DELAY_S:
+                    (obs.t - self.last_seen_catch) >= self.post_catch_delay_s:
                 self._go(State.AUTOCAST, obs.t)
             elif elapsed > 15.0:
                 # Multiple clicks failed to clear the dialog, give up.
