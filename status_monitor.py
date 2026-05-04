@@ -49,10 +49,13 @@ class _Snapshot:
     catch_visible: bool = False
     fps: float = 0.0
     loops: int = 0
+    # Base64-encoded PNG of the segmented preview-circle ROI. Tk's PhotoImage
+    # accepts base64 PNG natively (Tk >= 8.6) so we avoid pulling Pillow.
+    thumbnail_b64: Optional[str] = None
 
 
 class StatusMonitor:
-    def __init__(self, width: int = 240, height: int = 200,
+    def __init__(self, width: int = 240, height: int = 460,
                  position: str = "left-center", refresh_ms: int = 100) -> None:
         self._snap = _Snapshot()
         self._lock = threading.Lock()
@@ -154,6 +157,13 @@ class StatusMonitor:
                              fg="#666666", bg="#0a0a0a")
         catch_lbl.pack(fill="x")
 
+        # Segmentation thumbnail. We hold the PhotoImage on the label itself
+        # to keep a reference (Tkinter will garbage-collect images otherwise).
+        thumb_lbl = tk.Label(root, bg="#000000", width=self._width - 8,
+                             height=self._width - 8)
+        thumb_lbl.pack(fill="x", padx=4, pady=4)
+        thumb_lbl._photo = None  # type: ignore[attr-defined]
+
         meta_lbl = tk.Label(root, text="0.0 fps", font=font_sm,
                             fg="#444444", bg="#0a0a0a", pady=4)
         meta_lbl.pack(fill="x", side="bottom")
@@ -167,7 +177,7 @@ class StatusMonitor:
         def on_drag(e):
             root.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
 
-        for w in (state_lbl, action_lbl, tension_lbl, catch_lbl, meta_lbl):
+        for w in (state_lbl, action_lbl, tension_lbl, catch_lbl, thumb_lbl, meta_lbl):
             w.bind("<ButtonPress-1>", on_press)
             w.bind("<B1-Motion>", on_drag)
 
@@ -211,6 +221,14 @@ class StatusMonitor:
                 text="● catch dialog open" if snap.catch_visible else "",
                 fg="#c800c8" if snap.catch_visible else "#444444",
             )
+
+            if snap.thumbnail_b64 is not None:
+                try:
+                    img = tk.PhotoImage(data=snap.thumbnail_b64)
+                    thumb_lbl.configure(image=img)
+                    thumb_lbl._photo = img  # type: ignore[attr-defined]
+                except tk.TclError:
+                    pass  # bad/incomplete bytes — skip this frame
 
             meta_lbl.configure(text=f"{snap.fps:.1f} fps   loops {snap.loops}")
 

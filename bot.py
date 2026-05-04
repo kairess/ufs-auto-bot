@@ -52,6 +52,7 @@ macOS (only useful when the game runs natively on the Mac):
 from __future__ import annotations
 
 import argparse
+import base64
 import sys
 import threading
 import time
@@ -72,6 +73,50 @@ from segment_float import FloatDetection, preview_visible, segment_float
 from state_machine import FishingFSM, Observation, State, reel_action
 from status_monitor import StatusMonitor
 from tension import read_tension
+
+
+def build_segmentation_thumbnail(frame: np.ndarray, preview, det,
+                                 mask, max_w: int = 224) -> str | None:
+    """Crop the preview-circle ROI, overlay the float mask + tip marker, and
+    return a base64-encoded PNG that the status monitor can display."""
+    h_frame, w_frame = frame.shape[:2]
+    cx, cy, r = preview
+    pad = 12
+    x0 = max(0, cx - r - pad)
+    y0 = max(0, cy - r - pad)
+    x1 = min(w_frame, cx + r + pad)
+    y1 = min(h_frame, cy + r + pad)
+    roi = frame[y0:y1, x0:x1].copy()
+    if roi.size == 0:
+        return None
+
+    if mask is not None:
+        mask_roi = mask[y0:y1, x0:x1]
+        m = mask_roi > 0
+        if m.any():
+            roi[m] = (0.35 * roi[m] + 0.65 * np.array([0, 255, 0])).astype(np.uint8)
+
+    # Outline the preview circle so we can see the ROI extent.
+    cv2.circle(roi, (cx - x0, cy - y0), r, (0, 220, 255), 2)
+    if det.found:
+        cv2.circle(roi, (det.cx - x0, det.cy - y0), 4, (0, 0, 255), -1)
+        cv2.line(roi,
+                 (det.cx - x0 - 14, det.tip_y - y0),
+                 (det.cx - x0 + 14, det.tip_y - y0),
+                 (255, 255, 0), 2)
+        bx, by, bw, bh = det.bbox
+        cv2.rectangle(roi, (bx - x0, by - y0), (bx - x0 + bw, by - y0 + bh),
+                      (255, 0, 255), 2)
+
+    h, w = roi.shape[:2]
+    if w > max_w:
+        s = max_w / w
+        roi = cv2.resize(roi, (max_w, int(h * s)), interpolation=cv2.INTER_AREA)
+
+    ok, buf = cv2.imencode(".png", roi)
+    if not ok:
+        return None
+    return base64.b64encode(buf.tobytes()).decode("ascii")
 
 
 def parse_region(s: str) -> tuple[int, int, int, int]:
@@ -197,6 +242,10 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                     # spot the player wants to fish.
                     drv.hold_for(CAST_HOLD_S)
                     time.sleep(POST_ACTION_PAUSE_S)
+                    # Critical: leave AUTOCAST immediately so subsequent loop
+                    # iterations don't re-press LMB while the cast is still in
+                    # flight (which would yank the rod / partially reel in).
+                    fsm.notify_cast_input_completed(time.monotonic() - t_start)
                 else:
                     action = reel_action(state, tension.is_danger)
                     if action == "reel":
@@ -229,6 +278,12 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                 action_str = "idle"
                 if state in (State.SUNK, State.REELING):
                     action_str = "ease" if tension.is_danger else "reel"
+                # Throttle thumbnail generation to ~10 Hz to keep CPU low.
+                thumb = None
+                if loops % max(1, int((target_fps or 30) // 10)) == 0:
+                    thumb = build_segmentation_thumbnail(
+                        frame, PREVIEW_CIRCLE, det, mask
+                    )
                 monitor.update(
                     state=state.value if not probe else "PROBE",
                     action=action_str,
@@ -239,6 +294,7 @@ def run(cap: ScreenCapture, dry: bool, probe: bool, show_window: bool,
                     catch_visible=catch.visible,
                     fps=fps,
                     loops=loops,
+                    **({"thumbnail_b64": thumb} if thumb is not None else {}),
                 )
 
             if period > 0:

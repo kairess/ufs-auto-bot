@@ -205,6 +205,14 @@ class FishingFSM:
         """Driver tells us it just performed the cast input."""
         self._go(State.AUTOCAST, t)
 
+    def notify_cast_input_completed(self, t: float) -> None:
+        """Driver finished the LMB hold-and-release. Move into CASTING so the
+        next loop iterations don't re-fire the cast input. CASTING then waits
+        for the preview UI + float to appear and settle.
+        """
+        if self.state == State.AUTOCAST:
+            self._go(State.CASTING, t)
+
 
 def reel_should_be_held(state: State) -> bool:
     """Convenience: is the left mouse button supposed to be down right now?"""
