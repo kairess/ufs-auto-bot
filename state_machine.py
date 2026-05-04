@@ -158,8 +158,11 @@ class FishingFSM:
             if obs.preview_visible and obs.float_found and \
                     steady_visible_s >= CAST_SETTLE_S:
                 self._go(State.WAITING, obs.t)
-            elif not obs.preview_visible and elapsed > 8.0:
-                # Cast was cancelled or never registered. Bail back to idle.
+            elif elapsed > 30.0 and (obs.t - self.last_seen_preview) > 25.0:
+                # Hard failsafe: 30s in CASTING with no preview UI seen for
+                # most of that time means the cast almost certainly never
+                # launched (window lost focus, rod not equipped, etc.).
+                # Drop to IDLE so the autostart loop retries cleanly.
                 self._go(State.IDLE, obs.t)
 
         elif s == State.WAITING:
