@@ -46,10 +46,11 @@ class State(str, Enum):
     CATCH_DIALOG = "CATCH_DIALOG"  # post-catch sell/release prompt is up
 
 
-# How long the preview UI must stay visible after a cast before we believe the
-# rig has settled and we can act on float disappearances. The s3 trace shows
-# a ~600 ms "float underwater while landing" artifact, so this needs to clear it.
-CAST_SETTLE_S = 1.0
+# How long the float must be CONTINUOUSLY visible after a cast before we
+# accept the rig as settled and start watching for bites. Splashing on cast
+# landing makes the float flicker in/out of segmentation for 1-3s; until it's
+# steady we must not trust a "float gone" signal as a bite.
+CAST_SETTLE_S = 2.0
 
 # How long the float must remain "not found" inside a visible preview before
 # we call it a real bite. Real bites in s3 lasted ~100 ms; we set the gate
@@ -148,11 +149,16 @@ class FishingFSM:
                 self._go(State.IDLE, obs.t)
 
         elif s == State.CASTING:
-            # Wait for preview to stay visible AND float to be present for
-            # CAST_SETTLE_S — that's our "rig is in the water and stable" gate.
-            if obs.preview_visible and obs.float_found and elapsed >= CAST_SETTLE_S:
+            # Promote to WAITING only when the float has been CONTINUOUSLY
+            # visible for CAST_SETTLE_S. Using `last_lost_float` here means a
+            # single-frame splash flicker resets the timer, so we never enter
+            # WAITING while the rig is still settling — which would otherwise
+            # immediately trip the SUNK debounce on the next missed frame.
+            steady_visible_s = obs.t - self.last_lost_float
+            if obs.preview_visible and obs.float_found and \
+                    steady_visible_s >= CAST_SETTLE_S:
                 self._go(State.WAITING, obs.t)
-            elif not obs.preview_visible and elapsed > 5.0:
+            elif not obs.preview_visible and elapsed > 8.0:
                 # Cast was cancelled or never registered. Bail back to idle.
                 self._go(State.IDLE, obs.t)
 
