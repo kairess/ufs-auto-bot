@@ -2,6 +2,8 @@
 
 Auto-fishing bot for **Ultimate Fishing** (Steam, Unity 2017 + Mono backend).
 
+![demo](assets/result.gif)
+
 The bot reads the game's `FishingFloat` / `FishingLine` / `FishingPlayer`
 state directly out of the running game via a **BepInEx 5 plugin**, so
 detection is precise instead of inferred from screen pixels. The plugin
