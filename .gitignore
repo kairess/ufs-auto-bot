@@ -3,3 +3,7 @@ __pycache__/
 .venv
 frames/*
 videos/*
+memory.log
+
+plugin/bin/
+plugin/obj/

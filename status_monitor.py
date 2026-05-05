@@ -29,6 +29,11 @@ STATE_COLORS = {
     "SUNK":         "#ff5a00",
     "REELING":      "#ff0000",
     "CATCH_DIALOG": "#c800c8",
+    # Memory-FSM states.
+    "BITE":         "#ff8800",
+    "HOOK":         "#ff3030",
+    "FIGHT":        "#ff0040",
+    "LANDED":       "#a070ff",
 }
 
 ACTION_COLORS = {
@@ -52,6 +57,15 @@ class _Snapshot:
     # Base64-encoded PNG of the segmented preview-circle ROI. Tk's PhotoImage
     # accepts base64 PNG natively (Tk >= 8.6) so we avoid pulling Pillow.
     thumbnail_b64: Optional[str] = None
+
+    # Memory-driven extras. Falsy defaults so the panel still works for the
+    # legacy CV bot which doesn't push these.
+    auto_mode: bool = False
+    has_fish: bool = False
+    has_junk: bool = False
+    watch_fish: bool = False
+    tension_value: float = 0.0   # 0..1 from FishingLine.currentTension
+    player_state: str = ""
 
 
 class StatusMonitor:
@@ -137,9 +151,18 @@ class StatusMonitor:
         font_md = ("Helvetica", 11, "bold")
         font_sm = ("Helvetica", 10)
 
+        # Auto-mode banner. Click here (or press Delete) to toggle.
+        auto_lbl = tk.Label(root, text="AUTO OFF", font=font_md,
+                            fg="#666666", bg="#1a1a1a", pady=4)
+        auto_lbl.pack(fill="x")
+
         state_lbl = tk.Label(root, text="IDLE", font=font_lg,
                              fg="#a0a0a0", bg="#0a0a0a", pady=6)
         state_lbl.pack(fill="x")
+
+        flags_lbl = tk.Label(root, text="", font=font_sm,
+                             fg="#888888", bg="#0a0a0a")
+        flags_lbl.pack(fill="x")
 
         action_lbl = tk.Label(root, text="LMB ⏸", font=font_md,
                               fg="#888888", bg="#0a0a0a")
@@ -177,7 +200,8 @@ class StatusMonitor:
         def on_drag(e):
             root.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
 
-        for w in (state_lbl, action_lbl, tension_lbl, catch_lbl, thumb_lbl, meta_lbl):
+        for w in (auto_lbl, state_lbl, flags_lbl, action_lbl, tension_lbl,
+                  catch_lbl, thumb_lbl, meta_lbl):
             w.bind("<ButtonPress-1>", on_press)
             w.bind("<B1-Motion>", on_drag)
 
@@ -191,8 +215,32 @@ class StatusMonitor:
                 s = self._snap
                 snap = _Snapshot(**vars(s))
 
+            if snap.auto_mode:
+                auto_lbl.configure(text="● AUTO ON  (Delete to pause)",
+                                   fg="#00dc00", bg="#102010")
+            else:
+                auto_lbl.configure(text="○ AUTO OFF  (Delete to start)",
+                                   fg="#cccccc", bg="#1a1a1a")
+
             color = STATE_COLORS.get(snap.state, "#a0a0a0")
             state_lbl.configure(text=snap.state, fg=color)
+
+            badges = []
+            if snap.has_fish:
+                badges.append(("FISH", "#ff3030"))
+            if snap.has_junk:
+                badges.append(("JUNK", "#ff8800"))
+            if snap.watch_fish:
+                badges.append(("WATCH", "#c800c8"))
+            if snap.player_state and snap.player_state not in ("FISHING", "NORMAL", ""):
+                badges.append((snap.player_state, "#888888"))
+            if badges:
+                flags_lbl.configure(
+                    text="  ".join(b[0] for b in badges),
+                    fg=badges[0][1],
+                )
+            else:
+                flags_lbl.configure(text="", fg="#444444")
 
             action_text = {"idle": "LMB —",
                            "reel": "● REEL (LMB DOWN)",
@@ -200,13 +248,29 @@ class StatusMonitor:
             action_lbl.configure(text=action_text,
                                  fg=ACTION_COLORS.get(snap.action, "#888888"))
 
-            if snap.tension_visible:
+            # Memory bot pushes tension_value (0..1, direct from FishingLine);
+            # legacy CV bot pushes tension_visible/fill/danger fractions.
+            bar_canvas.delete("all")
+            w = self._width - 32
+            if snap.tension_value > 0 or snap.has_fish:
+                tv = snap.tension_value
+                if tv >= 1.0:
+                    color, label_color = "#ff3030", "#ff3030"
+                elif tv >= 0.8:
+                    color, label_color = "#ffd200", "#ffd200"
+                else:
+                    color, label_color = "#3a8a3a", "#88cc88"
+                tension_lbl.configure(text=f"tension {tv:.2f}", fg=label_color)
+                bar_canvas.create_rectangle(0, 0, int(w * min(1.0, tv)), 10,
+                                            fill=color, outline="")
+                # Mark the danger threshold for visual reference.
+                tx = int(w * 0.8)
+                bar_canvas.create_line(tx, 0, tx, 10, fill="#666666")
+            elif snap.tension_visible:
                 tension_lbl.configure(
                     text=f"tension fill {snap.tension_fill:.0%}  danger {snap.tension_danger:.0%}",
                     fg="#ffd200" if snap.tension_danger < 0.2 else "#ff3030",
                 )
-                bar_canvas.delete("all")
-                w = self._width - 32
                 fill_w = int(w * snap.tension_fill)
                 danger_w = int(w * snap.tension_danger)
                 bar_canvas.create_rectangle(0, 0, fill_w, 10,
@@ -215,7 +279,6 @@ class StatusMonitor:
                                             fill="#cc2020", outline="")
             else:
                 tension_lbl.configure(text="tension —", fg="#444444")
-                bar_canvas.delete("all")
 
             catch_lbl.configure(
                 text="● catch dialog open" if snap.catch_visible else "",
