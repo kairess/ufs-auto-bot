@@ -42,7 +42,7 @@ CATCH_DIALOG_FILL_THRESHOLD = 0.50  # >50% green fill = dialog is open
 
 # Cast input: hold LMB for this long, then release. Tune to taste — UFS shows
 # a charging power bar; ~1.5s gives a medium-power cast on default settings.
-CAST_HOLD_S = 1.5
+CAST_HOLD_S = 3
 
 # After a sell click or auto-cast, wait this long before re-entering the loop
 # so the game can update its UI / animations.
